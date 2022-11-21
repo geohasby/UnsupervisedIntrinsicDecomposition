@@ -11,51 +11,62 @@ Usage: This file decomposes all images in the folder dir_in (see parameters just
 """
 
 ### Global parameters ###
-dir_in = "input/" # Folder containing all images
-valid_images = [".jpg",".gif",".png",".tga",".tif"] # Valid extensions, feel free to extend
-dir_out = "output/" # Folder to save decompositions in
+from net_model import make_net
+import tensorflow.compat.v1 as tf
+from PIL import Image
+import numpy as np
+import os
+dir_in = "input/"  # Folder containing all images
+# Valid extensions, feel free to extend
+valid_images = [".jpg", ".gif", ".png", ".tga", ".tif"]
+dir_out = "output/"  # Folder to save decompositions in
 
 ### Imports and prep ###
-import os
-if not os.path.exists(dir_out): # Create output dir
+if not os.path.exists(dir_out):  # Create output dir
     os.makedirs(dir_out)
 
-import numpy as np
 
-from PIL import Image
+# Clear tensorflow <-- specially useful when running in permanent environment
+tf.reset_default_graph()
 
-import tensorflow as tf
-tf.reset_default_graph()    #   Clear tensorflow <-- specially useful when running in permanent environment
-
-from net_model import make_net
 
 ### Utility functions ###
 #   image reading function
+
 def imread(path):
     img = Image.open(path)
     return np.array(img)
 
 #   image writing function
+
+
 def imwrite(path, img):
     img = Image.fromarray(img)
     img.save(path)
 
 #   Util to convert image to the CNN format
+
+
 def CNNify(img):
     img = img.astype(dtype=np.float) / 255.
-    return img[None,:,:,:]
+    return img[None, :, :, :]
 
 #   Util to revert back from the CNN format to image
+
+
 def unCNNify(img):
     if len(img.shape) == 4:
-        img = img[0,:]
+        img = img[0, :]
 
     return np.clip(img*255., 0, 255).astype(dtype=np.uint8)
 
+
 ### Main ###
 if __name__ == "__main__":
-    input_size = (None, None) #   Can be set to (320, 240) to use training dimensions
-    input_img = tf.placeholder(tf.float32,shape=(1, input_size[0], input_size[1], 3), name = "I")
+    # Can be set to (320, 240) to use training dimensions
+    input_size = (None, None)
+    input_img = tf.placeholder(tf.float32, shape=(
+        1, input_size[0], input_size[1], 3), name="I")
     is_training = tf.placeholder(tf.bool, name="is_training")
 
     #   Create network
@@ -65,16 +76,19 @@ if __name__ == "__main__":
     # Setup session
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
-    config.allow_soft_placement = True # Allows CPU or GPU (note: for inference, GPU is rarely necessary as the CNN is fairly small.)
-    sess=tf.InteractiveSession(config=config)
+    # Allows CPU or GPU (note: for inference, GPU is rarely necessary as the CNN is fairly small.)
+    config.allow_soft_placement = True
+    sess = tf.InteractiveSession(config=config)
 
     #   Utils to restore weights
     def restore_map_vars(model_checkpoint_path):
         reader = tf.train.NewCheckpointReader(model_checkpoint_path)
         saved_shapes = reader.get_variable_to_shape_map()
-        var_names = sorted([(var.name, var.name.split(':')[0]) for var in tf.global_variables() if var.name.split(':')[0] in saved_shapes])
+        var_names = sorted([(var.name, var.name.split(':')[
+                           0]) for var in tf.global_variables() if var.name.split(':')[0] in saved_shapes])
         restore_vars = {}
-        name2var = dict(zip(map(lambda x:x.name.split(':')[0], tf.global_variables()), tf.global_variables()))
+        name2var = dict(zip(map(lambda x: x.name.split(
+            ':')[0], tf.global_variables()), tf.global_variables()))
 
         #   Map name to var
         with tf.variable_scope('', reuse=True):
@@ -84,7 +98,7 @@ if __name__ == "__main__":
                 if var_shape == saved_shapes[saved_var_name]:
                     restore_vars[saved_var_name] = curr_var
                 else:
-                    print ("Not found = {}", saved_var_name)
+                    print("Not found = {}", saved_var_name)
                     return None
 
         #   Reminiscences from author's aging framework
@@ -96,7 +110,7 @@ if __name__ == "__main__":
     #   Load trained CNN weights
     pretrained_path = "model/model_params.ckpt"
     common_vars = restore_map_vars(pretrained_path)
-    saver = tf.train.Saver(var_list = common_vars)
+    saver = tf.train.Saver(var_list=common_vars)
     saver.restore(sess, pretrained_path)
 
     # Loop over all images in input directory
@@ -110,15 +124,16 @@ if __name__ == "__main__":
 
         #   Load image
         img = imread(img_path)
-        img = CNNify(img) # Prep for CNN (e.g., add batch dimension)
+        img = CNNify(img)  # Prep for CNN (e.g., add batch dimension)
 
         #   Inference: process image and get A and S out.
-        results = sess.run([net["A"], net["S"]], {input_img:img, is_training:False})
+        results = sess.run([net["A"], net["S"]], {
+                           input_img: img, is_training: False})
 
         # Save results
         out_img_path = dir_out + img_name
-        A = unCNNify(results[0]) # convert back to normal image format
-        S = unCNNify(results[1]) # convert back to normal image format
+        A = unCNNify(results[0])  # convert back to normal image format
+        S = unCNNify(results[1])  # convert back to normal image format
 
         #   Save A
         A_name = os.path.splitext(out_img_path)[0] + "_A.png"
